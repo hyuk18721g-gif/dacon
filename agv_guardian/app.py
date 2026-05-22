@@ -59,7 +59,10 @@ st.markdown("""
 # 데이터 로드 및 처리
 # ═══════════════════════════════════════════════════════════
 @st.cache_data(show_spinner="데이터 처리 중...")
-def load_and_process_data(w_sensor: float = 0.50, w_ai: float = 0.30, w_thermal: float = 0.20):
+def load_and_process_data(
+    w_sensor: float = 0.50, w_ai: float = 0.30, w_thermal: float = 0.20,
+    w_ae: float = 0.60, w_phm: float = 0.40,
+):
     """더미데이터 생성 → 센서 점수 → 이상탐지 → 열화상 점수 → 최종 위험도."""
     thermal_dir = ROOT / "data" / "thermal_images"
     generate_all_thermal_images(thermal_dir)
@@ -75,7 +78,7 @@ def load_and_process_data(w_sensor: float = 0.50, w_ai: float = 0.30, w_thermal:
     )
 
     df = calculate_sensor_scores(df)
-    df = calculate_anomaly_scores(df)
+    df = calculate_anomaly_scores(df, w_ae=w_ae, w_phm=w_phm)
 
     thermal_scores, default_score = get_thermal_scores_per_agv(thermal_dir)
     df["thermal_risk_score"] = df["agv_id"].map(thermal_scores).fillna(default_score)
@@ -140,8 +143,10 @@ def process_uploaded_csv(
     w_ai: float,
     w_thermal: float,
     thermal_scores_dict: Optional[dict] = None,
+    w_ae: float = 0.60,
+    w_phm: float = 0.40,
 ) -> pd.DataFrame:
-    """업로드된 CSV를 전체 파이프라인으로 처리 (LSTM 포함).
+    """업로드된 CSV를 전체 파이프라인으로 처리.
 
     thermal_scores_dict: {agv_id: score} — 업로드 이미지 기반 점수.
                          None이면 data/thermal_images 생성 이미지 사용.
@@ -160,7 +165,7 @@ def process_uploaded_csv(
         )
 
     df = calculate_sensor_scores(df)
-    df = calculate_anomaly_scores(df)
+    df = calculate_anomaly_scores(df, w_ae=w_ae, w_phm=w_phm)
 
     if thermal_scores_dict:
         base_scores, default_score = get_thermal_scores_per_agv(thermal_dir)
@@ -180,7 +185,11 @@ def get_active_df(w_sensor: float, w_ai: float, w_thermal: float) -> pd.DataFram
     """업로드 데이터가 있으면 반환, 없으면 더미 데이터 사용."""
     if st.session_state.get("processed_df") is not None:
         return st.session_state.processed_df
-    return load_and_process_data(w_sensor, w_ai, w_thermal)
+    return load_and_process_data(
+        w_sensor, w_ai, w_thermal,
+        st.session_state.get("w_ae", 0.60),
+        st.session_state.get("w_phm", 0.40),
+    )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -190,6 +199,9 @@ if "w_sensor" not in st.session_state:
     st.session_state.w_sensor  = 0.50
     st.session_state.w_ai      = 0.30
     st.session_state.w_thermal = 0.20
+if "w_ae" not in st.session_state:
+    st.session_state.w_ae  = 0.60
+    st.session_state.w_phm = 0.40
 if "processed_df" not in st.session_state:
     st.session_state.processed_df = None
 if "face_images_uploaded" not in st.session_state:
@@ -320,7 +332,7 @@ st.markdown("""
     height: auto !important;
     min-height: 58px !important;
     cursor: pointer !important;
-    transition: all 0.15s ease !important;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease !important;
     /* 비활성 기본 */
     background: #ffffff !important;
     border: 1px solid #e8eaf2 !important;
@@ -352,7 +364,7 @@ st.markdown("""
     border-color: #c4b5fd !important;
     color: #5b21b6 !important;
     box-shadow: 0 3px 10px rgba(124,58,237,0.10) !important;
-    transform: translateY(-1px) !important;
+    transform: none !important;
 }
 [data-testid="stSidebar"] .stButton > button:hover::after {
     color: #a78bfa !important;
@@ -364,10 +376,17 @@ st.markdown("""
     outline: none !important;
     box-shadow: 0 0 0 3px rgba(124,58,237,0.18) !important;
 }
-[data-testid="stSidebar"] .stButton > button:active {
-    transform: none !important;
+[data-testid="stSidebar"] .stButton > button:active,
+[data-testid="stSidebar"] .stButton > button:active:hover {
+    transform: scale(1) !important;
+    -webkit-transform: scale(1) !important;
+    min-height: 58px !important;
+    height: auto !important;
+    padding: 11px 36px 11px 14px !important;
+    font-size: 13px !important;
     background: #f5f3ff !important;
     border-color: #c4b5fd !important;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.06) !important;
 }
 
 /* ── 활성 nav 카드 (HTML div, button 아님) ── */
@@ -384,7 +403,7 @@ st.markdown("""
     border-left: 3.5px solid #7c3aed;
     box-shadow: 0 4px 14px rgba(124,58,237,0.13);
     cursor: default;
-    min-height: 58px;
+    min-height: 64px;
     box-sizing: border-box;
 }
 .sb2-nav-active-arrow {
@@ -407,13 +426,13 @@ st.markdown("""
     font-size: 13px;
     font-weight: 700;
     color: #4c1d95;
-    line-height: 1.3;
+    line-height: 1.5;
 }
 .sb2-nav-desc {
-    font-size: 11px;
+    font-size: 13px;
     color: #7c3aed;
-    line-height: 1.3;
-    margin-top: 1px;
+    line-height: 1.5;
+    margin-top: 0;
 }
 
 /* ════════════════════════════════════════════
@@ -883,15 +902,22 @@ def page_risk_analysis(df_full: pd.DataFrame, selected_agv: str):
     st.plotly_chart(fig_contrib, use_container_width=True)
 
     # ── AI 설명 박스 ─────────────────────────────────────────
+    w_ae_disp  = st.session_state.get("w_ae",  0.60)
+    w_phm_disp = st.session_state.get("w_phm", 0.40)
     st.info(
-        "**AI 이상탐지 방법론 — LSTM AutoEncoder 기반 시계열 이상탐지**\n\n"
-        "AGV별 최근 2시간(10분 간격 × 12 시점) 센서 시퀀스를 입력으로 받는 "
-        "**LSTM AutoEncoder**가 정상 운행 패턴을 학습합니다. "
-        "입력 시계열을 얼마나 잘 복원하지 못하는지를 재구성 오차(reconstruction error)로 계산하며, "
-        "모터 온도·진동·전류 변동성처럼 복합적인 패턴이 정상과 달라지면 복원 오차가 증가합니다.\n\n"
-        "- **Encoder LSTM** → Bottleneck 잠재 표현 → **RepeatVector** → **Decoder LSTM** → **TimeDistributed Dense**\n"
-        "- 재구성 오차(MSE)를 0~100 범위로 정규화하여 AI Anomaly Score로 변환\n"
-        "- 최종 AI Anomaly Score = 0.65 × LSTM 재구성 오차 점수 + 0.35 × Sensor Risk Score"
+        f"**AI 이상탐지 방법론 — Dense AutoEncoder + PHM Health Index**\n\n"
+        f"두 모델 점수를 블렌딩하여 **AI Anomaly Score**를 산출합니다. "
+        f"⚙️ **Data & Settings** 페이지에서 각 가중치를 전문가 경험에 맞게 조정할 수 있습니다.\n\n"
+        f"**① Dense AutoEncoder** (현재 가중치: {w_ae_disp:.2f})\n"
+        f"AGV별 최근 2시간(12 시점) 센서 시퀀스를 Dense 레이어로 압축·복원합니다. "
+        f"재구성 오차(MSE)가 클수록 이상 점수가 높아집니다.\n"
+        f"- Input → Encoder Dense(ReLU) → Bottleneck(16차원) → Decoder Dense → Output\n\n"
+        f"**② PHM Health Index** (현재 가중치: {w_phm_disp:.2f})\n"
+        f"각 센서의 정상 기준값 대비 열화 수준 및 고장 임계값 근접도를 계산하고, "
+        f"모터 온도·진동의 상승 트렌드(Degradation Trend)를 반영한 건강 지수입니다.\n"
+        f"- 센서별 정규화 열화도 → 가중합 → 상승 트렌드 보정 → Health Index (0~100)\n\n"
+        f"최종: AI Score = {w_ae_disp:.2f} × AE Score + {w_phm_disp:.2f} × PHM Score "
+        f"(+ 25% Sensor Risk 블렌딩)"
     )
 
 
@@ -1022,7 +1048,7 @@ def page_thermal_diagnosis():
                 else:
                     agv_ids_all = [f"AGV-{i:02d}" for i in range(1, 13)]
                 default_idx = agv_ids_all.index("AGV-03") if "AGV-03" in agv_ids_all else 0
-                selected_agv_for_3d = st.selectbox("AGV 선택", agv_ids_all, index=default_idx)
+                selected_agv_for_3d = st.selectbox("AGV 선택", agv_ids_all, index=default_idx, key="thermal_agv_select")
             with col_info:
                 _ANOMALY_NOTE = {
                     "AGV-03": "⚠️ 모터 과열+진동 — 전면 좌측 모터 & 좌측면 모터 마운트 핫스팟",
@@ -1320,13 +1346,15 @@ def page_data_upload():
             with st.spinner(f"열화상 분석 중... ({len(thermal_images_all_upload)}대 × 5면)"):
                 thermal_scores_dict = thermal_scores_from_all(thermal_images_all_upload)
 
-        with st.spinner("AI 이상탐지 및 위험도 계산 중... (최초 1회 LSTM 학습, 약 1~2분)"):
+        with st.spinner("AI 이상탐지 및 위험도 계산 중... (Dense AE + PHM 학습, 약 30초)"):
             processed = process_uploaded_csv(
                 raw_df,
                 st.session_state.w_sensor,
                 st.session_state.w_ai,
                 st.session_state.w_thermal,
                 thermal_scores_dict=thermal_scores_dict,
+                w_ae=st.session_state.get("w_ae", 0.60),
+                w_phm=st.session_state.get("w_phm", 0.40),
             )
 
         st.session_state.processed_df = processed
@@ -1350,9 +1378,9 @@ def page_data_settings(df_full: pd.DataFrame):
 
     st.divider()
 
-    # ── 위험도 가중치 조정 ────────────────────────────────────
-    st.subheader("⚖️ 위험도 가중치 조정")
-    st.caption("가중치 합이 1.00이 되어야 합니다.")
+    # ── 최종 위험도 가중치 조정 ──────────────────────────────
+    st.subheader("⚖️ 최종 위험도 가중치 (전문가 조정)")
+    st.caption("세 가중치의 합이 1.00이 되어야 합니다. 저장 시 자동 정규화됩니다.")
 
     col1, col2, col3 = st.columns(3)
     new_ws = col1.slider("Sensor Risk Weight",  0.0, 1.0, st.session_state.w_sensor,  0.05)
@@ -1363,7 +1391,7 @@ def page_data_settings(df_full: pd.DataFrame):
     if abs(total_w - 1.0) > 0.01:
         st.warning(f"가중치 합 = {total_w:.2f} (1.00이 아님). 저장 시 자동 정규화됩니다.")
 
-    if st.button("가중치 적용", type="primary"):
+    if st.button("최종 위험도 가중치 적용", type="primary"):
         if total_w > 0:
             st.session_state.w_sensor  = new_ws / total_w
             st.session_state.w_ai      = new_wa / total_w
@@ -1372,7 +1400,6 @@ def page_data_settings(df_full: pd.DataFrame):
                    f"AI={st.session_state.w_ai:.2f}, "
                    f"Thermal={st.session_state.w_thermal:.2f}")
             if st.session_state.get("processed_df") is not None:
-                # 업로드 데이터: LSTM 재학습 없이 final_risk만 재계산
                 updated = calculate_final_risk(
                     st.session_state.processed_df,
                     st.session_state.w_sensor,
@@ -1386,6 +1413,64 @@ def page_data_settings(df_full: pd.DataFrame):
             st.rerun()
         else:
             st.error("가중치 합이 0이 될 수 없습니다.")
+
+    st.divider()
+
+    # ── AI 모델 내부 가중치 (전문가 설정) ─────────────────────
+    st.subheader("🤖 AI 모델 가중치 (전문가 설정)")
+    st.caption("AutoEncoder와 PHM Health Index의 기여 비율을 조정합니다. 변경 시 AI 점수가 재계산됩니다.")
+
+    st.info(
+        "**AutoEncoder**: 센서 시퀀스 재구성 오차 기반 이상 탐지 — 정상 패턴에서 벗어날수록 점수 상승\n\n"
+        "**PHM Health Index**: 센서 열화 추세 및 고장 임계값 근접도 기반 건강 지수 — 장기 열화 패턴 반영"
+    )
+
+    col_ae, col_phm = st.columns(2)
+    new_w_ae  = col_ae.slider(
+        "AutoEncoder 가중치",      0.0, 1.0, st.session_state.w_ae,  0.05,
+        help="재구성 오차 기반 단기 이상 탐지 비중"
+    )
+    new_w_phm = col_phm.slider(
+        "PHM Health Index 가중치", 0.0, 1.0, st.session_state.w_phm, 0.05,
+        help="열화 추세 기반 장기 건강 지수 비중"
+    )
+
+    total_ai = new_w_ae + new_w_phm
+    if total_ai < 0.01:
+        st.error("AutoEncoder와 PHM 가중치 합이 0이 될 수 없습니다.")
+    else:
+        ae_norm  = new_w_ae  / total_ai
+        phm_norm = new_w_phm / total_ai
+        if abs(total_ai - 1.0) > 0.01:
+            st.warning(f"AI 가중치 합 = {total_ai:.2f}. 저장 시 자동 정규화됩니다.")
+        st.markdown(
+            f"정규화 후 → AutoEncoder: **{ae_norm:.2f}** / PHM Health Index: **{phm_norm:.2f}**"
+        )
+
+        if st.button("AI 모델 가중치 적용", type="secondary"):
+            st.session_state.w_ae  = ae_norm
+            st.session_state.w_phm = phm_norm
+            if st.session_state.get("processed_df") is not None:
+                with st.spinner("AI 점수 재계산 중..."):
+                    updated = calculate_anomaly_scores(
+                        st.session_state.processed_df,
+                        w_ae=st.session_state.w_ae,
+                        w_phm=st.session_state.w_phm,
+                    )
+                    updated = calculate_final_risk(
+                        updated,
+                        st.session_state.w_sensor,
+                        st.session_state.w_ai,
+                        st.session_state.w_thermal,
+                    )
+                    st.session_state.processed_df = apply_maintenance_rules(updated)
+            else:
+                st.cache_data.clear()
+            st.success(
+                f"AI 가중치 적용 완료: "
+                f"AE={st.session_state.w_ae:.2f}, PHM={st.session_state.w_phm:.2f}"
+            )
+            st.rerun()
 
     st.divider()
 
